@@ -13,6 +13,7 @@ import (
 	"crypto/tls"
 	"path"
 	"strings"
+	"net/url"
 )
 
 type ModFile struct {
@@ -121,7 +122,7 @@ func getLocationHeader(baseUrl string) (string, error) {
 	defer res.Body.Close()
 	var finalUrl = res.Request.URL.String()
 	sp := strings.Split(finalUrl, "/")
-	var fileName = sp[len(sp)-1]
+	fileName, _ := url.QueryUnescape(sp[len(sp)-1])
 	fmt.Println("file name:" + fileName)
 	if len(fileName) == 0 {
 		fileName = time.Now().String()
