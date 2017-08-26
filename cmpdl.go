@@ -91,7 +91,7 @@ func worker(jobs <-chan ModFile, results chan<- Result) {
 		baseUrl := fmt.Sprintf("http://minecraft.curseforge.com/projects/%v/files/%v/download", file.ProjectID, file.FileID)
 		var finalUrl2 string
 		for i := 0; i < 5; i++ {
-			finalUrl, err := getLocationHeader(baseUrl);
+			finalUrl, err := getLocationHeader(baseUrl, file.ProjectID, file.FileID);
 			if err == nil {
 				finalUrl2 = finalUrl
 				break
@@ -109,7 +109,7 @@ func worker(jobs <-chan ModFile, results chan<- Result) {
 	}
 }
 
-func getLocationHeader(baseUrl string) (string, error) {
+func getLocationHeader(baseUrl string, projectId int, fileId int) (string, error) {
 	userAgent := "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Ubuntu Chromium/53.0.2785.143 Chrome/53.0.2785.143 Safari/537.36";
 	fmt.Println("downloading:" + baseUrl)
 	req, _ := http.NewRequest("GET", baseUrl, nil)
@@ -123,14 +123,14 @@ func getLocationHeader(baseUrl string) (string, error) {
 	var finalUrl = res.Request.URL.String()
 	sp := strings.Split(finalUrl, "/")
 	fileName, _ := url.QueryUnescape(sp[len(sp)-1])
-	fmt.Println("file name:" + fileName)
+	fmt.Println("file name:" + fileName + ",file id: " + strconv.Itoa(fileId) + ",project id: "+ strconv.Itoa(projectId))
 	if len(fileName) == 0 {
 		fileName = time.Now().String()
 	}
-	path := path.Join(modpackPath, fileName)
-	f, err := os.Create(path)
+	modPath := path.Join(modpackPath, fileName)
+	f, err := os.Create(modPath)
 	if err != nil {
-		fmt.Println("create file err : " + path)
+		fmt.Println("create file err : " + modPath)
 		return res.Request.URL.String(), err;
 	}
 	defer f.Close()
