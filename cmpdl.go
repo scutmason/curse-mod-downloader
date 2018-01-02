@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"errors"
 )
 
 type ModFile struct {
@@ -22,12 +23,17 @@ type ModFile struct {
 	Required  bool `json:"required"`
 }
 
+type ModIndex struct {
+	ModFile
+	index int
+}
+
 type Manifest struct {
 	Author          string    `json:"author"`
 	Files           []ModFile `json:"files"`
 	ManifestType    string    `json:"manifestType"`
 	ManifestVersion int       `json:"manifestVersion"`
-	Minecraft       struct {
+	Minecraft struct {
 		ModLoaders []struct {
 			ID      string `json:"id"`
 			Primary bool   `json:"primary"`
@@ -54,6 +60,8 @@ type Result struct {
 
 var client *http.Client
 var modpackPath string
+var modpackDirName string
+var total int
 
 func main() {
 	dat, err := ioutil.ReadFile("./manifest.json")
@@ -61,19 +69,21 @@ func main() {
 	var jsonData Manifest
 	json.Unmarshal(dat, &jsonData)
 	modepackDirName := jsonData.Name + "-" + strconv.FormatInt(time.Now().Unix()/1000, 10)
+	modpackDirName = modepackDirName
 	modpackPath = filepath.Join(".", modepackDirName)
 	os.MkdirAll(modpackPath, os.ModePerm)
 	tr := &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 	}
 	client = &http.Client{Transport: tr}
-	jobs := make(chan ModFile, 100)
+	jobs := make(chan ModIndex, 100)
 	results := make(chan Result, 100)
 	for w := 1; w <= 3; w++ {
 		go worker(jobs, results)
 	}
-	for _, mod := range jsonData.Files {
-		jobs <- mod
+	total = len(jsonData.Files)
+	for i, mod := range jsonData.Files {
+		jobs <- ModIndex{mod,i+1}
 	}
 	close(jobs)
 	for a := 1; a <= len(jsonData.Files); a++ {
@@ -96,15 +106,13 @@ func writeError(s string, modepackDirName string) {
 	errorFile.WriteString(s)
 	errorFile.WriteString("\r\n")
 }
-
-func worker(jobs <-chan ModFile, results chan<- Result) {
+func worker(jobs <-chan ModIndex, results chan<- Result) {
 
 	for file := range jobs {
-
 		baseURL := fmt.Sprintf("http://minecraft.curseforge.com/projects/%v/files/%v/download", file.ProjectID, file.FileID)
 		var finalURL2 string
 		for i := 0; i < 5; i++ {
-			finalURL, err := getLocationHeader(baseURL, file.ProjectID, file.FileID)
+			finalURL, err := getLocationHeader(baseURL, file.ProjectID, file.FileID, file.index)
 			if err == nil {
 				finalURL2 = finalURL
 				break
@@ -122,9 +130,9 @@ func worker(jobs <-chan ModFile, results chan<- Result) {
 	}
 }
 
-func getLocationHeader(baseUrl string, projectId int, fileId int) (string, error) {
+func getLocationHeader(baseUrl string, projectId int, fileId int, index int) (string, error) {
 	userAgent := "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Ubuntu Chromium/53.0.2785.143 Chrome/53.0.2785.143 Safari/537.36"
-	fmt.Println("downloading:" + baseUrl)
+	fmt.Println(strconv.Itoa(index) + "/" + strconv.Itoa(total) + "downloading:" + baseUrl)
 	req, _ := http.NewRequest("GET", baseUrl, nil)
 	req.Header.Set("User-Agent", userAgent)
 	res, err := http.DefaultClient.Do(req)
@@ -132,11 +140,14 @@ func getLocationHeader(baseUrl string, projectId int, fileId int) (string, error
 		fmt.Println(err.Error())
 		return "", err
 	}
+	if res.StatusCode > 300 || res.StatusCode < 200 {
+		return "", errors.New("error network with code:" + strconv.Itoa(res.StatusCode))
+	}
 	defer res.Body.Close()
 	var finalUrl = res.Request.URL.String()
 	sp := strings.Split(finalUrl, "/")
 	fileName, _ := url.QueryUnescape(sp[len(sp)-1])
-	fmt.Println("file name:" + fileName + ",file id: " + strconv.Itoa(fileId) + ",project id: " + strconv.Itoa(projectId))
+	logToFile("file name:" + fileName + ",file id: " + strconv.Itoa(fileId) + ",project id: " + strconv.Itoa(projectId))
 	if len(fileName) == 0 {
 		fileName = time.Now().String()
 	}
@@ -148,6 +159,10 @@ func getLocationHeader(baseUrl string, projectId int, fileId int) (string, error
 	}
 	defer f.Close()
 	io.Copy(f, res.Body)
-	fmt.Println("copy finish")
 	return res.Request.URL.String(), nil
+}
+
+func logToFile(s string) {
+	//fmt.Println(s);
+	//writeError(s, modpackDirName)
 }
